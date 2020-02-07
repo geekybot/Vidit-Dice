@@ -62,15 +62,14 @@ interface ITRC20 {
     );
 }
 
-contract LuxeSweepDiv {
+contract Div {
     
     using SafeMath for uint256;
 
     // ///////////////////////////////////
 
-    // luxe
-    ITRC20 private luxe;
-    ITRC20 private matchtoken;
+    // token
+    ITRC20 private token;
 
     // owner address
     address public owner;
@@ -78,10 +77,10 @@ contract LuxeSweepDiv {
     address public ownerCandidate;
 
     // total tokens shares & divs
-    uint256 public totalToken; // total luxesweep locked
-    uint256 public totalMatch; // total match stored in contract  ( yet to be distributed + already distibuted but not withdrawn yet, not direct trx transfer )
-    uint256 public divBalanceMatch; // div balance left 
-    uint256 public grandSumMatchStored; // total trx divs stored by owner till date
+    uint256 public totalToken; // total dst locked
+    uint256 public totalTrx; // total trx stored in contract  ( yet to be distributed + already distibuted but not withdrawn yet, not direct trx transfer )
+    uint256 public divBalanceTrx; // div balance left 
+    uint256 public grandSumTrxStored; // total trx divs stored by owner till date
     uint256 public dailyPercent;
 
     // user props
@@ -108,10 +107,9 @@ contract LuxeSweepDiv {
     // ///////////////////////////////////
     // Owner functions
 
-    constructor(ITRC20 _luxe, ITRC20 _match) public {
+    constructor(ITRC20 _token) public {
         owner = msg.sender;
-        luxe = _luxe;
-        matchtoken = _match;
+        token = _token;
         dailyPercent = 10;
     }
 
@@ -146,21 +144,21 @@ contract LuxeSweepDiv {
 
     // withdraw direct trx tranfered to contracts
     function withdrawAllExtraTrx() onlyOwner public {
-        address(owner).transfer(address(this).balance - totalToken);
+        address(owner).transfer(address(this).balance - totalTrx);
     }
 
     // deposit trx divs
     function depositDiv() onlyOwner public payable {
-        // transfer to luxe with users reciever
-        totalToken = totalToken.add(msg.value);
-        divBalanceMatch = divBalanceMatch.add(msg.value);
-        grandSumMatchStored = grandSumMatchStored.add(msg.value);
+        // transfer to token with users reciever
+        totalTrx = totalTrx.add(msg.value);
+        divBalanceTrx = divBalanceTrx.add(msg.value);
+        grandSumTrxStored = grandSumTrxStored.add(msg.value);
         emit DivDeposited(msg.value);
     }
 
     // daily triggered function
     function divDistribution(uint256 indexer) onlyAdmin public {
-        uint256 amtToDist = divBalanceMatch.mul(dailyPercent).div(100);
+        uint256 amtToDist = divBalanceTrx.mul(dailyPercent).div(100);
         uint256 i = indexer * 100;
         require(i < userbase.length, "invalid params");
         uint256 ii = i;
@@ -170,13 +168,13 @@ contract LuxeSweepDiv {
             dis = dis.add(users[userbase[i]].share.mul(amtToDist).div(totalToken));
         }
         
-        divBalanceMatch = divBalanceMatch.sub(dis);
+        divBalanceTrx = divBalanceTrx.sub(dis);
         emit Distributed(indexer, dis);
     }
 
     // all triggered function
     function CompleteDivDistribution(uint256 indexer) onlyOwner public {
-        uint256 amtToDist = divBalanceMatch;
+        uint256 amtToDist = divBalanceTrx;
         uint256 i = indexer * 100;
         require(i < userbase.length, "invalid params");
         uint256 ii = i;
@@ -185,22 +183,22 @@ contract LuxeSweepDiv {
             users[userbase[i]].divBalance = users[userbase[i]].divBalance.add(users[userbase[i]].share.mul(amtToDist).div(totalToken));
             dis = dis.add(users[userbase[i]].share.mul(amtToDist).div(totalToken));
         }
-        divBalanceMatch = divBalanceMatch.sub(dis);
+        divBalanceTrx = divBalanceTrx.sub(dis);
         emit Distributed(indexer, dis);
     }
 
     // ///////////////////////////////////
     // User functions
 
-    // freeze dst tokens transfer
+    // freeze dst tokens
     function freeze(uint256 value) public {
-        require(luxe.allowance(msg.sender, address(this)) >= value, "invalid request");
-        require(luxe.balanceOf(msg.sender) >= value, "insufficient balance");
+        require(token.allowance(msg.sender, address(this)) >= value, "invalid request");
+        require(token.balanceOf(msg.sender) >= value, "insufficient balance");
         if(!userExist[msg.sender]) {
             userExist[msg.sender] = true;
             userbase.push(msg.sender);
         }
-        luxe.transferFrom(msg.sender, address(this), value);
+        token.transferFrom(msg.sender, address(this), value);
         users[msg.sender].share = users[msg.sender].share.add(value);
         totalToken = totalToken.add(value);
         emit Frozen(msg.sender, value);
@@ -213,8 +211,8 @@ contract LuxeSweepDiv {
         users[msg.sender].share = users[msg.sender].share.sub(value);
         users[msg.sender].unfreezeAmount = value;
         users[msg.sender].unfreezeInProcess = true;
-        // users[msg.sender].unfreezeTime = now + 172800; // 48 hours
-        users[msg.sender].unfreezeTime = now + 120; // 2 mins for testing
+        users[msg.sender].unfreezeTime = now + 172800; // 48 hours
+        // users[msg.sender].unfreezeTime = now + 120; // 2 mins for testing
         totalToken = totalToken.sub(value);
         emit UnfrozenRequest(msg.sender, value, users[msg.sender].unfreezeTime);
     }
@@ -225,19 +223,18 @@ contract LuxeSweepDiv {
         require(users[msg.sender].unfreezeInProcess, "no live unfreeze request");
         users[msg.sender].unfreezeInProcess = false;
         uint256 value = users[msg.sender].unfreezeAmount;
-        luxe.transfer(msg.sender, value);
+        token.transfer(msg.sender, value);
         users[msg.sender].unfreezeAmount = 0;
         emit Unfrozen(msg.sender, value);
     }
 
-    // withdraw div Match
+    // withdraw div trx
     function withdraw(uint256 value) public {
-        // transfer to luxe with users reciever
+        // transfer to token with users reciever
         require(users[msg.sender].divBalance >= value);
         users[msg.sender].divBalance = users[msg.sender].divBalance.sub(value);
-        totalMatch = totalMatch.sub(value);
-        // address(msg.sender).transfer(value);
-        matchtoken.transfer(msg.sender, value);
+        totalTrx = totalTrx.sub(value);
+        address(msg.sender).transfer(value);
         emit Withdrawal(msg.sender, value);
     }
 
